@@ -10,6 +10,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import DocumentDetail from "./pages/DocumentDetail";
 import Documents from "./pages/Documents";
 import Inbox from "./pages/Inbox";
+import Landing from "./pages/Landing";
 import Overview from "./pages/Overview";
 import Queue from "./pages/Queue";
 import Timeline from "./pages/Timeline";
@@ -37,8 +38,9 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 function Router() {
   return (
     <Switch>
+      <Route path="/" component={Landing} />
       <Route path="/signin" component={SignIn} />
-      <Route path="/">
+      <Route path="/app">
         <RequireAuth>
           <Overview />
         </RequireAuth>

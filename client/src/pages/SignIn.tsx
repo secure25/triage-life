@@ -16,7 +16,7 @@ export default function SignIn() {
 
   useEffect(() => {
     if (user) {
-      window.location.href = "/";
+      window.location.href = "/app";
     }
   }, [user]);
 
@@ -24,7 +24,7 @@ export default function SignIn() {
     try {
       await login.mutateAsync({ email: signInEmail, name: signInName });
       await utils.invalidate();
-      window.location.href = "/";
+      window.location.href = "/app";
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Sign in failed — try again.",

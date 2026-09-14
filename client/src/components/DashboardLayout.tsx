@@ -24,7 +24,7 @@ import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
 const navItems = [
-  { label: "Overview", icon: LayoutDashboard, path: "/" },
+  { label: "Overview", icon: LayoutDashboard, path: "/app" },
   { label: "Inbox", icon: Inbox, path: "/inbox" },
   { label: "Decisions", icon: ListChecks, path: "/queue" },
   { label: "Documents", icon: FileText, path: "/documents" },
@@ -97,8 +97,8 @@ export default function DashboardLayout({
       {navItems.map(item => {
         const Icon = item.icon;
         const active =
-          item.path === "/"
-            ? location === "/"
+          item.path === "/app"
+            ? location === "/app"
             : location.startsWith(item.path);
         return (
           <a
