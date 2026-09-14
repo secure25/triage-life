@@ -122,15 +122,22 @@ pnpm db:push        # generate + apply migrations via drizzle-kit
 
 ### OCR setup
 
-- **Demo provider (default, zero-config)** — recognizes the three synthetic
+- **Local text extraction (default via `OCR_PROVIDER=auto`)** — reads the
+  embedded text directly out of PDFs (via pdfjs-dist) and DOCX files (via
+  mammoth): instant, free, and exact for the majority of real-world
+  documents, which are portal downloads with text layers. Scanned PDFs
+  (no text layer) and images are delegated to the scan fallback when
+  configured; otherwise they fail with a clear, actionable error — the app
+  never fakes text it cannot read.
+- **Demo provider (`OCR_PROVIDER=demo`)** — recognizes the three synthetic
   demo documents by their embedded marker and returns realistic page-level
-  text. Real documents fail with a clear, retryable error stating that
-  production OCR credentials are needed. The app never fakes OCR.
-- **Amazon Textract** — set `OCR_PROVIDER=textract` with AWS credentials from
-  the standard chain. Images are processed synchronously; PDFs run as async
-  Textract jobs, which require `STORAGE_DRIVER=s3` (Textract reads PDFs from
-  S3). Polling is bounded (~90 s) and sync calls retry with backoff on
-  throttling.
+  text with imperfections.
+- **Amazon Textract** — set `OCR_PROVIDER=textract` (or rely on `auto`'s
+  scan fallback) with AWS credentials from the standard chain. Images are
+  processed synchronously; PDFs run as async Textract jobs, which require
+  `STORAGE_DRIVER=s3` (Textract reads PDFs from S3). Polling is bounded
+  (~90 s) and sync calls retry with backoff on throttling. Note: Textract
+  requires a one-time activation on some AWS account plans.
 
 ### Agent setup (Strands)
 
@@ -208,7 +215,8 @@ execution → audit).
   demo documents; real documents need the Strands engine with a model.
 - Email sign-in has no password. Use a real IdP before any real deployment.
 - The in-memory store (no `DATABASE_URL`) is for demos only.
-- Textract PDF OCR requires S3-backed storage.
+- Scanned PDFs and photos need the Textract scan fallback (S3-backed
+  storage); text-layer PDFs and DOCX extract locally.
 
 ## License
 
