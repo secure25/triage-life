@@ -56,8 +56,12 @@ describe("auth (router)", () => {
     expect(result).toEqual({ success: true });
     expect(clearCookie).toHaveBeenCalledWith(
       COOKIE_NAME,
-      expect.objectContaining({ maxAge: -1, httpOnly: true, path: "/" }),
+      expect.objectContaining({ httpOnly: true, path: "/" }),
     );
+    // maxAge must NOT be passed: express deprecates it on clearCookie
+    // (cleared cookies are expired automatically).
+    const options = clearCookie.mock.calls[0]![1] as Record<string, unknown>;
+    expect("maxAge" in options).toBe(false);
   });
 
   it("protected procedures reject anonymous callers", async () => {
