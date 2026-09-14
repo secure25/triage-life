@@ -67,7 +67,15 @@ export async function processDocument(
     modelId: engine.modelId,
   });
 
-  const ctx: ToolContext = { repo, trace: [] };
+  // Stream the agent's tool trace to the UI while it runs: each tool call
+  // is persisted immediately so document detail pages show live progress.
+  const ctx: ToolContext = {
+    repo,
+    trace: [],
+    onTrace: trace => {
+      void repo.updateAgentRun(run.id, userId, { toolTrace: trace }).catch(() => {});
+    },
+  };
 
   try {
     await runOcrStage(repo, document, ocrProvider.name);

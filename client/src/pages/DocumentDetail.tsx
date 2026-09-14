@@ -47,10 +47,27 @@ type AgentRun = {
   }> | null;
 };
 
+/** Human narration of each agent tool — this is what makes the agent visible. */
+const TOOL_LABELS: Record<string, string> = {
+  get_document_text: "Reading your document",
+  extract_obligations: "Extracting obligations and deadlines",
+  calculate_priority: "Classifying urgency",
+  create_or_update_task: "Adding to your decision queue",
+  draft_response: "Drafting a response for you",
+  request_user_approval: "Stopping at the approval gate — this needs you",
+  record_audit_event: "Recording the audit trail",
+};
+
+function toolLabel(tool: string): string {
+  return TOOL_LABELS[tool] ?? tool.replace(/_/g, " ");
+}
+
 export default function DocumentDetail({ documentId }: { documentId: string }) {
   const utils = trpc.useUtils();
   const detailQuery = trpc.documents.get.useQuery({ id: documentId }, {
-    refetchInterval: 5000,
+    // Poll fast while the agent is working so its tool trace streams live.
+    refetchInterval: query =>
+      query.state.data?.document.processingStatus === "processing" ? 2000 : 6000,
   });
 
   const retryProcessing = trpc.documents.retryProcessing.useMutation();
@@ -268,6 +285,67 @@ export default function DocumentDetail({ documentId }: { documentId: string }) {
             </div>
           </div>
         </div>
+
+        {/* Live agent activity — the agent's work, narrated as it happens */}
+        {document.processingStatus === "processing" && (
+          <section className="mt-5 overflow-hidden rounded-[16px] border border-[#cfe3d3] bg-[#f2f8f3] shadow-[0_7px_20px_rgba(35,55,43,0.05)]">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#dcebe0] bg-[#e9f3eb] px-5 py-3.5">
+              <div className="flex items-center gap-2.5">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#65a274] opacity-60" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#4f8762]" />
+                </span>
+                <span className="text-[13px] font-semibold text-[#2b5845]">
+                  Triage is working on this document
+                </span>
+              </div>
+              <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-[#7ea28a]">
+                {latestRun?.modelId ?? latestRun?.provider ?? "agent"} · live
+              </span>
+            </div>
+
+            <div className="space-y-2.5 px-5 py-4">
+              {(latestRun?.toolTrace ?? []).length === 0 && (
+                <div className="flex items-center gap-2.5 text-[12px] text-[#5c7263]">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-[#7ca289]" />
+                  Extracting the text (OCR)…
+                </div>
+              )}
+              {(latestRun?.toolTrace ?? []).map((entry, index) => (
+                <div
+                  key={index}
+                  className="flex items-center gap-2.5 text-[12px] text-[#3f544a]"
+                >
+                  {entry.ok ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-[#65a274]" />
+                  ) : (
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0 text-[#c45322]" />
+                  )}
+                  <span
+                    className={
+                      entry.tool === "request_user_approval"
+                        ? "font-semibold text-[#2b5845]"
+                        : ""
+                    }
+                  >
+                    {toolLabel(entry.tool)}
+                  </span>
+                  <span className="ml-auto text-[10px] text-[#94ad9b]">
+                    {formatTime(entry.startedAt)}
+                  </span>
+                </div>
+              ))}
+              <div className="flex items-center gap-2.5 text-[12px] text-[#8aa694]">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span className="italic">
+                  {latestRun && (latestRun.toolTrace ?? []).length > 0
+                    ? "…the agent is deciding its next step"
+                    : "preparing"}
+                </span>
+              </div>
+            </div>
+          </section>
+        )}
 
         {document.processingStatus === "failed" && document.processingError && (
           <div className="mt-5 rounded-[12px] border border-[#f0d9cb] bg-[#fff0e8] p-4">

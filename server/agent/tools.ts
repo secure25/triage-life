@@ -17,6 +17,11 @@ import type { ExtractedObligation, ExtractionResult } from "./extraction";
 export type ToolContext = {
   repo: TriageRepository;
   trace: ToolTraceEntry[];
+  /**
+   * Live-trace sink: called after every tool call so the running agent's
+   * work streams to the UI while it happens (not only after completion).
+   */
+  onTrace?: (trace: ToolTraceEntry[]) => void;
 };
 
 export async function traced<T>(
@@ -36,6 +41,7 @@ export async function traced<T>(
       completedAt: new Date().toISOString(),
       ok: true,
     });
+    ctx.onTrace?.([...ctx.trace]);
     return output;
   } catch (error) {
     ctx.trace.push({
@@ -46,6 +52,7 @@ export async function traced<T>(
       completedAt: new Date().toISOString(),
       ok: false,
     });
+    ctx.onTrace?.([...ctx.trace]);
     throw error;
   }
 }

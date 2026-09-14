@@ -60,6 +60,10 @@ export default function Overview() {
 
   const hasDocuments = (documentsQuery.data?.length ?? 0) > 0;
   const metrics = metricsQuery.data?.metrics;
+  const processingDocs = (documentsQuery.data ?? []).filter(
+    doc =>
+      doc.processingStatus === "processing" || doc.processingStatus === "pending",
+  );
 
   const today = new Date().toLocaleDateString(undefined, {
     weekday: "long",
@@ -188,6 +192,38 @@ export default function Overview() {
               )}
               Load demo documents
             </button>
+          </section>
+        )}
+
+        {/* Live agent activity strip — visible while any document processes */}
+        {processingDocs.length > 0 && (
+          <section className="mt-7 overflow-hidden rounded-[16px] border border-[#cfe3d3] bg-[#f2f8f3]">
+            <div className="flex items-center gap-2.5 border-b border-[#dcebe0] bg-[#e9f3eb] px-5 py-3">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#65a274] opacity-60" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#4f8762]" />
+              </span>
+              <span className="text-[12px] font-semibold text-[#2b5845]">
+                Triage is working right now
+              </span>
+            </div>
+            {processingDocs.map(doc => (
+              <a
+                key={doc.id}
+                href={`/documents/${doc.id}`}
+                className="flex items-center gap-3 border-b border-[#e4efe6] px-5 py-3 transition last:border-0 hover:bg-[#eef5ef]"
+              >
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[#7ca289]" />
+                <span className="truncate text-[12.5px] font-medium text-[#3f544a]">
+                  {doc.processingStatus === "pending"
+                    ? `Queued: ${doc.originalFilename}`
+                    : `Reading ${doc.originalFilename}`}
+                </span>
+                <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[10.5px] font-semibold text-[#5b8065]">
+                  watch live <ChevronRight className="h-3.5 w-3.5" />
+                </span>
+              </a>
+            ))}
           </section>
         )}
 
