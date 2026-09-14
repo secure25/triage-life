@@ -1,0 +1,190 @@
+# Triage — Life Admin, Reduced to Decisions
+
+Triage is an autonomous, approval-gated life-admin agent. It receives real user
+documents, extracts obligations and deadlines, turns them into prioritized
+tasks, drafts responses — and asks for **explicit human approval** before any
+consequential action.
+
+> Triage never asks you to read the paperwork again. It asks only for the
+> decision the paperwork requires.
+
+Built for the [Agents for Humans](https://agentsforhumans.devpost.com/) hackathon.
+
+---
+
+## What it does
+
+1. You upload a document (PDF, PNG, JPG, DOCX — up to 15 MB).
+2. The original file is stored in object storage; only metadata lives in the
+   database.
+3. OCR extracts the text (page-level, with confidence).
+4. The agent identifies obligations, deadlines, entities, amounts, requested
+   actions, missing information — each fact with a source quote and page.
+5. Priority classification sorts work into the decision queue
+   (needs decision / waiting for you / due soon / in progress).
+6. Triage drafts a response when appropriate. **It never sends anything.**
+7. You approve, edit, reject, or dismiss. Editing a draft after approval
+   invalidates the approval.
+8. Every step is recorded in an append-only audit timeline.
+
+**External actions are approval-gated, and v1 executions are simulations** —
+the UI says so explicitly (`Simulation only — no real message was sent`).
+
+## Demo mode
+
+Three clearly-labeled synthetic documents (insurance renewal, school emergency
+contact form, appointment confirmation) run through the *real* pipeline —
+upload, OCR, extraction, queue, draft, approval gate, simulated execution,
+audit. Sign in, then click **Load demo documents** on the Overview or Inbox
+page. The synthetic documents use the reserved `.example` TLD, so the demo can
+never contact a real third party. Demo document dates are generated relative
+to today, so the demo never goes stale.
+
+---
+
+## Architecture
+
+```
+┌────────────┐     ┌───────────────────────────── Server (Express + tRPC) ─────────────────────────────┐
+│  Browser    │     │                                                                                      │
+│  React 19   │────▶│  tRPC API ──▶ Processing pipeline ──▶ OCR provider (demo | Textract)               │
+│  Vite       │PUT  │      │             │  (upload → OCR → extract → prioritize →                        │
+│  Tailwind 4 │────▶│  Upload     Agent tool layer      │   upsert task → draft → approval gate)          │
+└────────────┘     │  route           │                 │                                                │
+                   │      │           ▼                 ▼                                                │
+                   │      ▼      Deterministic /        Repository (Drizzle ORM ⇄ PostgreSQL             │
+                   │  Document    Strands engine          |          or in-memory fallback)              │
+                   │  store      (narrow tools,           ▼                                             │
+                   │  (local FS  audited trace)      Audit events                                       │
+                   │   or S3)                                                                        │
+                   └──────────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Frontend** — React 19, TypeScript, Vite, Tailwind CSS 4, tRPC (typed
+  end-to-end), wouter. No chat window: the primary experience is a decision
+  queue, document detail panels, and a transparent activity timeline.
+- **API** — tRPC over Express. Every procedure enforces per-user ownership.
+- **Database** — PostgreSQL via Drizzle ORM (`users`, `documents`,
+  `obligations`, `drafts`, `approvals`, `agent_runs`, `audit_events`). UTC
+  timestamps throughout; the UI converts to local time.
+- **Object storage** — pluggable `DocumentStore`: local filesystem (default)
+  or any S3-compatible bucket. File bytes never live in the database.
+- **OCR** — pluggable `OcrProvider`: deterministic demo provider (synthetic
+  documents) or Amazon Textract (images synchronously; PDFs as async S3 jobs).
+- **Agent** — a narrow tool boundary (`get_document_text`,
+  `extract_obligations`, `calculate_priority`, `create_or_update_task`,
+  `draft_response`, `request_user_approval`, `record_audit_event`). The
+  deterministic engine runs these tools in a fixed, audited pipeline;
+  `AGENT_PROVIDER=strands` swaps in the Strands Agents SDK engine (see
+  [Agent setup](#agent-setup-strands)). Every tool call is recorded in a
+  tool trace shown in the UI.
+- **Approval model** — approvals are first-class records that snapshot the
+  exact approved payload, expire after 7 days, and are invalidated when the
+  draft changes. Execution (simulated in v1) is only possible while an active,
+  matching approval exists. See `server/domain/approval.ts` — the invariants
+  live in one place and are covered by tests.
+
+## Getting started
+
+Requires Node 20+ and pnpm.
+
+```bash
+pnpm install
+cp .env.example .env        # DATABASE_URL optional for a quick start
+pnpm db:push                # create tables (needs DATABASE_URL)
+pnpm dev                    # http://localhost:3000
+```
+
+Without `DATABASE_URL` the app runs on an in-memory store — everything works,
+but data resets on restart. Sign in with any email (there is no password; this
+is an MVP identity boundary, not production auth — put real authentication in
+front if you deploy this), then **Load demo documents**.
+
+### Environment variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | — | PostgreSQL connection string. Absent → in-memory store. |
+| `JWT_SECRET` | dev fallback | Signs sessions and upload tokens. **Required in production.** |
+| `PORT` | `3000` | HTTP port. |
+| `STORAGE_DRIVER` | `local` | `local` (filesystem) or `s3`. |
+| `STORAGE_DIR` | `storage` | Local storage directory. |
+| `S3_BUCKET` / `S3_REGION` / `S3_PREFIX` | — | S3 storage configuration. |
+| `OCR_PROVIDER` | `auto` | `auto`, `demo`, or `textract`. |
+| `AGENT_PROVIDER` | `deterministic` | `deterministic` or `strands`. |
+| `MODEL_ID` | — | Model id for the Strands engine. |
+
+### Database migrations
+
+```bash
+pnpm db:push        # generate + apply migrations via drizzle-kit
+```
+
+### OCR setup
+
+- **Demo provider (default, zero-config)** — recognizes the three synthetic
+  demo documents by their embedded marker and returns realistic page-level
+  text. Real documents fail with a clear, retryable error stating that
+  production OCR credentials are needed. The app never fakes OCR.
+- **Amazon Textract** — set `OCR_PROVIDER=textract` with AWS credentials from
+  the standard chain. Images are processed synchronously; PDFs run as async
+  Textract jobs, which require `STORAGE_DRIVER=s3` (Textract reads PDFs from
+  S3). Polling is bounded (~90 s) and sync calls retry with backoff on
+  throttling.
+
+### Agent setup (Strands)
+
+The deterministic engine extracts structured obligations from the synthetic
+demo documents with zero external dependencies — this is what runs by default
+and in the test suite. To process real documents, set `AGENT_PROVIDER=strands`
+and configure a model provider per the [Strands Agents SDK docs]
+(https://strandsagents.com) plus `MODEL_ID`. The Strands engine exposes the
+same seven tools as the deterministic pipeline, so the approval gate, audit
+trail, and idempotency behave identically regardless of engine.
+
+---
+
+## Tests
+
+```bash
+pnpm test
+```
+
+Covers: file validation (type spoofing, size, traversal-safe filenames),
+ownership enforcement across every procedure, OCR provider selection and the
+demo provider's refusal to fake OCR, structured extraction parsing
+(deadlines, amounts, missing fields stay null), priority classification,
+idempotent reprocessing, approval invalidation after draft edits, approval
+expiry, rejection/dismissal, audit-event creation, execution being blocked
+without approval, and a full end-to-end run
+(upload → OCR → extraction → task → draft → approval gate → simulated
+execution → audit).
+
+## Security and privacy
+
+- Model and storage credentials stay on the server; nothing sensitive is
+  exposed to browser code.
+- File type and size are validated server-side on both the intent and the
+  actual bytes; filenames are sanitized and never used to build paths.
+- Storage keys are server-generated UUIDs under `users/<id>/…`; reads are
+  ownership-checked, and S3 reads use short-lived presigned URLs.
+- Every document, task, draft, approval, and audit query is scoped by user.
+- Uploads and processing routes are rate-limited; retries are bounded.
+- Logs never contain document contents — only failure reasons.
+- Triage is not a substitute for a professional and never provides medical,
+  legal, tax, or financial advice.
+- Deleting a document removes the original file and all derived rows.
+
+## Known limitations
+
+- v1 executions are **simulations**. There are no real email/calendar/form
+  integrations yet; the approval record is the integration boundary for them.
+- The deterministic extraction engine only understands the three synthetic
+  demo documents; real documents need the Strands engine with a model.
+- Email sign-in has no password. Use a real IdP before any real deployment.
+- The in-memory store (no `DATABASE_URL`) is for demos only.
+- Textract PDF OCR requires S3-backed storage.
+
+## License
+
+MIT
