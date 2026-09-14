@@ -1,28 +1,16 @@
 import type { Document, ToolTraceEntry } from "../drizzle/schema";
 import { getOcrProvider, OcrUnavailableError } from "./ocr";
-import { getExtractionEngine } from "./agent/engine";
-import {
-  calculatePriorityTool,
-  createOrUpdateTask,
-  draftResponse,
-  extractObligations,
-  getDocumentText,
-  recordAuditEvent,
-  requestUserApproval,
-  writeAuditEvent,
-  type ToolContext,
-} from "./agent/tools";
+import { getExtractionEngine, type AgentEngine } from "./agent/engine";
+import { writeAuditEvent, type ToolContext } from "./agent/tools";
 import { getRepository, type TriageRepository } from "./repository";
 
 /**
  * Document processing pipeline (spec §1 end-to-end flow):
- * upload → OCR → structured extraction → priority → task upsert →
- * draft → approval gate → audit. Idempotent: re-running updates existing
- * obligations and drafts instead of duplicating them.
- *
- * The pipeline is the deterministic orchestration layer: it invokes the same
- * tools a Strands agent would (see server/agent/tools.ts) and records every
- * call for the activity panel.
+ * upload → OCR → agent stage → audit. The agent stage (extraction → priority
+ * → task upsert → draft → approval gate) is run by the configured engine —
+ * deterministic sequence or Strands agent loop — over the same audited tool
+ * layer. Idempotent: re-running updates existing obligations and drafts
+ * instead of duplicating them.
  */
 
 const inFlight = new Map<string, Promise<void>>();
@@ -57,7 +45,7 @@ export async function processDocument(
   });
 
   const ocrProvider = getOcrProvider();
-  const engine = await getExtractionEngine();
+  const engine: AgentEngine = await getExtractionEngine();
 
   const run = await repo.createAgentRun({
     documentId,
@@ -75,7 +63,7 @@ export async function processDocument(
     const processed = await repo.getDocument(documentId, userId);
     if (!processed) return;
 
-    const extractionResult = await runAgentStage(ctx, repo, processed, engine);
+    const extractionResult = await engine.runAgentStage(ctx, repo, processed);
 
     await repo.updateDocument(documentId, userId, {
       processingStatus: "completed",
@@ -99,6 +87,7 @@ export async function processDocument(
       eventType: "processing_completed",
       actorType: "agent",
       summary: `Processing completed — ${extractionResult.obligations.length} obligation(s) extracted`,
+      metadata: { engine: engine.name, modelId: engine.modelId },
     });
   } catch (error) {
     const message =
@@ -169,98 +158,6 @@ async function runOcrStage(
         : `OCR completed — ${result.pages.length} page(s)`,
     metadata: { provider: result.provider, confidence: result.confidence },
   });
-}
-
-async function runAgentStage(
-  ctx: ToolContext,
-  repo: TriageRepository,
-  document: Document,
-  engine: Awaited<ReturnType<typeof getExtractionEngine>>,
-) {
-  const textResult = await getDocumentText(ctx, document.id, document.userId);
-
-  const extraction = await extractObligations(
-    ctx,
-    {
-      documentId: document.id,
-      text: textResult.text,
-      ocrConfidence: textResult.confidence,
-    },
-    engine,
-  );
-
-  await recordAuditEvent(ctx, {
-    userId: document.userId,
-    documentId: document.id,
-    eventType: "obligations_extracted",
-    actorType: "agent",
-    summary: `Agent extracted ${extraction.obligations.length} obligation(s) from "${document.originalFilename}"`,
-    metadata: { engine: engine.name, modelId: engine.modelId },
-  });
-
-  for (const extracted of extraction.obligations) {
-    const priority = await calculatePriorityTool(ctx, extracted);
-    const { obligation, created } = await createOrUpdateTask(
-      ctx,
-      document,
-      extracted,
-      priority,
-    );
-
-    await recordAuditEvent(ctx, {
-      userId: document.userId,
-      documentId: document.id,
-      obligationId: obligation.id,
-      eventType: created ? "task_created" : "task_updated",
-      actorType: "agent",
-      summary: `${created ? "Created" : "Updated"} task "${obligation.title}" (${priority.urgency} urgency — ${priority.reason})`,
-    });
-
-    if (extracted.dueAt) {
-      await recordAuditEvent(ctx, {
-        userId: document.userId,
-        documentId: document.id,
-        obligationId: obligation.id,
-        eventType: "deadline_detected",
-        actorType: "agent",
-        summary: `Deadline detected for "${obligation.title}"`,
-        metadata: { dueAt: extracted.dueAt.toISOString() },
-      });
-    }
-
-    if (extracted.draft) {
-      const { draft, created: draftCreated } = await draftResponse(
-        ctx,
-        obligation,
-        extracted.draft,
-      );
-
-      await recordAuditEvent(ctx, {
-        userId: document.userId,
-        documentId: document.id,
-        obligationId: obligation.id,
-        draftId: draft.id,
-        eventType: draftCreated ? "draft_created" : "draft_updated",
-        actorType: "agent",
-        summary: `Draft prepared for "${obligation.title}" — nothing is sent without your approval`,
-      });
-
-      if (extracted.approvalRequired) {
-        await requestUserApproval(ctx, obligation, draft, extracted.actionTarget);
-        await recordAuditEvent(ctx, {
-          userId: document.userId,
-          documentId: document.id,
-          obligationId: obligation.id,
-          draftId: draft.id,
-          eventType: "approval_required",
-          actorType: "agent",
-          summary: `Approval required: "${obligation.title}" — Triage stopped at the approval gate`,
-        });
-      }
-    }
-  }
-
-  return extraction;
 }
 
 /**

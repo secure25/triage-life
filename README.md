@@ -134,13 +134,37 @@ pnpm db:push        # generate + apply migrations via drizzle-kit
 
 ### Agent setup (Strands)
 
-The deterministic engine extracts structured obligations from the synthetic
-demo documents with zero external dependencies — this is what runs by default
-and in the test suite. To process real documents, set `AGENT_PROVIDER=strands`
-and configure a model provider per the [Strands Agents SDK docs]
-(https://strandsagents.com) plus `MODEL_ID`. The Strands engine exposes the
-same seven tools as the deterministic pipeline, so the approval gate, audit
-trail, and idempotency behave identically regardless of engine.
+Triage uses the [Strands Agents SDK](https://strandsagents.com)
+(`@strands-agents/sdk`, TypeScript — requires Node 22+) as its agent
+orchestration layer. Two engines implement the same boundary:
+
+- **Deterministic engine (default, zero-config)** — runs the seven narrow
+  tools (`get_document_text`, `extract_obligations`, `calculate_priority`,
+  `create_or_update_task`, `draft_response`, `request_user_approval`,
+  `record_audit_event`) in a fixed, audited sequence over the synthetic demo
+  documents. This is what the test suite and the no-credentials demo use.
+- **Strands engine** (`AGENT_PROVIDER=strands`) — a real agent loop: the
+  model reads the document via `get_document_text`, registers what it found
+  with `extract_obligations`, then calls the priority/task/draft/approval
+  tools itself and returns Zod-validated structured output. Model providers:
+  - `STRANDS_MODEL_PROVIDER=bedrock` (default) — AWS credential chain;
+    `MODEL_ID` optional (defaults to Claude Sonnet 4.6 on Bedrock).
+  - `STRANDS_MODEL_PROVIDER=openai` — any OpenAI-compatible endpoint,
+    including local ones (Ollama/vLLM serve `/v1`): set `OPENAI_BASE_URL`,
+    `OPENAI_API_KEY`, and `MODEL_ID`.
+
+  The model decides what to extract and how to phrase drafts — never what is
+  allowed. Dates and amounts are normalized server-side, priority
+  classification is deterministic code, `draft_response` only ever creates a
+  draft, and after the agent finishes a reconciliation pass re-checks its
+  work: anything the model extracted but failed to persist is created
+  deterministically, and the approval gate is enforced even if the model
+  skipped it. The agent cannot talk the system past the gate.
+
+If `AGENT_PROVIDER=strands` is set but no model provider is configured, the
+app logs a warning and falls back to the deterministic engine, so the project
+always runs. Every tool call — from either engine — lands in the audited
+tool trace shown on each document's detail page.
 
 ---
 
@@ -153,10 +177,11 @@ pnpm test
 Covers: file validation (type spoofing, size, traversal-safe filenames),
 ownership enforcement across every procedure, OCR provider selection and the
 demo provider's refusal to fake OCR, structured extraction parsing
-(deadlines, amounts, missing fields stay null), priority classification,
-idempotent reprocessing, approval invalidation after draft edits, approval
-expiry, rejection/dismissal, audit-event creation, execution being blocked
-without approval, and a full end-to-end run
+(deadlines, amounts, missing fields stay null), LLM-output date/amount
+normalization, priority classification, Strands engine configuration and its
+deterministic fallback, idempotent reprocessing, approval invalidation after
+draft edits, approval expiry, rejection/dismissal, audit-event creation,
+execution being blocked without approval, and a full end-to-end run
 (upload → OCR → extraction → task → draft → approval gate → simulated
 execution → audit).
 

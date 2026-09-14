@@ -27,4 +27,11 @@ export const ENV = {
     | "deterministic"
     | "strands",
   modelId: process.env.MODEL_ID ?? "",
+  // Strands model provider: "bedrock" (AWS credential chain) or "openai"
+  // (any OpenAI-compatible endpoint, including local ones).
+  strandsModelProvider: (process.env.STRANDS_MODEL_PROVIDER ?? "bedrock") as
+    | "bedrock"
+    | "openai",
+  openaiBaseUrl: process.env.OPENAI_BASE_URL ?? "",
+  openaiApiKey: process.env.OPENAI_API_KEY ?? "",
 } as const;
