@@ -177,7 +177,15 @@ export function normalizeRawObligation(raw: RawObligation): ExtractedObligation 
   return {
     title: raw.title.trim(),
     description: raw.description.trim(),
-    category: raw.category.trim().toLowerCase().replace(/\s+/g, "_"),
+    // Single lowercase word ("insurance", "school"): take the first word of
+    // whatever the model said, stripped of punctuation.
+    category:
+      raw.category
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter(Boolean)[0] ?? "other",
     dueAt: normalizeDueDate(raw.dueDate, raw.dueTime),
     amountCents: amount?.cents ?? null,
     currency: amount?.currency ?? null,
@@ -209,7 +217,14 @@ export function normalizeStructuredExtraction(
   obligations: ExtractedObligation[];
 } {
   return {
-    documentType: structured.documentType.trim().toLowerCase().replace(/\s+/g, "_"),
+    documentType:
+      structured.documentType
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter(Boolean)
+        .join("_") || "unknown",
     senderLabel: structured.senderLabel.trim(),
     agentExplanation: structured.agentExplanation.trim(),
     obligations: structured.obligations.map(normalizeRawObligation),

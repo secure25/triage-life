@@ -56,6 +56,9 @@ Rules you must follow without exception:
 7. If OCR confidence is low, say so and flag the item for review.
 8. Do not provide medical, legal, tax, or financial advice.
 9. If the document is a synthetic demo document, say so plainly in the explanation.
+10. Extract each DISTINCT obligation exactly once. Never create two obligations for the same underlying task, and never split one task into sub-tasks. A reminder for an appointment is part of that appointment's obligation, not a separate one. A premium increase and the renewal decision it belongs to are ONE obligation. If in doubt, fewer, cleaner obligations.
+11. Categories are single lowercase words like insurance, school, health, utilities, taxes — never phrases or punctuation.
+12. Only put values in missingInformation when the document literally cannot be completed without information the user must supply. If the user just needs to make a decision, use requiredUserDecision instead — missingInformation is only for absent data.
 
 Workflow for the document you are given:
 1. Call get_document_text.
@@ -198,14 +201,110 @@ export class StrandsEngine implements AgentEngine {
       metadata: { engine: this.name, modelId: this.modelId },
     });
 
-    // Reconciliation: the model may skip or mangle tool calls. The queue and
+    // Reconciliation: the model may skip, mangle, or duplicate. The queue and
     // the approval gate are enforced by code, not by model discretion.
-    for (const extracted of extraction.obligations) {
+    const deduped = dedupeObligations(extraction.obligations);
+    if (deduped.length < extraction.obligations.length) {
+      await recordAuditEvent(ctx, {
+        userId: document.userId,
+        documentId: document.id,
+        eventType: "obligations_deduplicated",
+        actorType: "system",
+        summary: `Merged ${extraction.obligations.length - deduped.length} duplicate obligation(s) from the model output`,
+      });
+    }
+    for (const extracted of deduped) {
       await ensureObligationPersisted(ctx, repo, document, extracted);
     }
 
-    return extraction;
+    return { ...extraction, obligations: deduped };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Duplicate suppression (deterministic, applied to model output)
+// ---------------------------------------------------------------------------
+
+/** Lowercase, punctuation-free, whitespace-collapsed title. */
+function normalizeTitleForComparison(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Word-overlap similarity in [0,1] between two normalized titles. */
+function titleSimilarity(a: string, b: string): number {
+  const wordsA = new Set(a.split(" ").filter(word => word.length > 2));
+  const wordsB = new Set(b.split(" ").filter(word => word.length > 2));
+  if (wordsA.size === 0 || wordsB.size === 0) return 0;
+  let shared = 0;
+  for (const word of wordsA) if (wordsB.has(word)) shared++;
+  return shared / Math.min(wordsA.size, wordsB.size);
+}
+
+function sameDay(a: Date | null, b: Date | null): boolean {
+  if (a === null && b === null) return true;
+  if (a === null || b === null) return false;
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+/**
+ * Two obligations describe the same task when their titles are near-identical
+ * and their due dates match. The "richer" one (has a draft, or more missing
+ * info, or longer description) wins. Deterministic — never trusts the model
+ * to dedupe itself.
+ */
+export function dedupeObligations(
+  obligations: ExtractedObligation[],
+): ExtractedObligation[] {
+  const kept: ExtractedObligation[] = [];
+
+  for (const candidate of obligations) {
+    const candidateTitle = normalizeTitleForComparison(candidate.title);
+    const duplicateOf = kept.find(existing => {
+      if (!sameDay(existing.dueAt, candidate.dueAt)) return false;
+      const existingTitle = normalizeTitleForComparison(existing.title);
+      if (existingTitle === candidateTitle) return true;
+      return titleSimilarity(existingTitle, candidateTitle) >= 0.6;
+    });
+
+    if (!duplicateOf) {
+      kept.push(candidate);
+      continue;
+    }
+
+    // Merge into the richer record: prefer the one with a draft; then the
+    // one that requires approval; then the longer description.
+    const candidateScore =
+      (candidate.draft ? 2 : 0) +
+      (candidate.approvalRequired ? 1 : 0) +
+      candidate.description.length / 1000;
+    const existingScore =
+      (duplicateOf.draft ? 2 : 0) +
+      (duplicateOf.approvalRequired ? 1 : 0) +
+      duplicateOf.description.length / 1000;
+    if (candidateScore > existingScore) {
+      const index = kept.indexOf(duplicateOf);
+      kept[index] = {
+        ...candidate,
+        missingInformation: Array.from(
+          new Set([...candidate.missingInformation, ...duplicateOf.missingInformation]),
+        ),
+      };
+    } else {
+      duplicateOf.missingInformation = Array.from(
+        new Set([...duplicateOf.missingInformation, ...candidate.missingInformation]),
+      );
+    }
+  }
+
+  return kept;
 }
 
 // ---------------------------------------------------------------------------

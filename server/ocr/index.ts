@@ -1,6 +1,7 @@
 import { ENV } from "../_core/env";
 import { getDocumentStore } from "../storage";
 import { DemoOcrProvider } from "./demo";
+import { LocalTextProvider } from "./local";
 import { TextractOcrProvider } from "./textract";
 import type { OcrProvider } from "./types";
 
@@ -19,20 +20,27 @@ function awsCredentialsLikelyPresent(): boolean {
 let _provider: OcrProvider | null = null;
 
 /**
- * Provider selection (spec §6): explicit OCR_PROVIDER wins; "auto" uses
- * Textract when AWS credentials look configured, otherwise the demo provider.
+ * Provider selection (spec §6):
+ * - "auto" (default): read embedded text directly (PDF text layers, DOCX) —
+ *   instant, free, exact. Scanned PDFs and images fall back to Textract when
+ *   AWS credentials look configured.
+ * - "demo": synthetic demo documents only (canned OCR text).
+ * - "textract": force Amazon Textract for everything.
  */
 export function getOcrProvider(): OcrProvider {
   if (_provider) return _provider;
 
   const store = getDocumentStore();
-  if (
-    ENV.ocrProvider === "textract" ||
-    (ENV.ocrProvider === "auto" && awsCredentialsLikelyPresent())
-  ) {
+
+  if (ENV.ocrProvider === "textract") {
     _provider = new TextractOcrProvider(store);
-  } else {
+  } else if (ENV.ocrProvider === "demo") {
     _provider = new DemoOcrProvider(store);
+  } else {
+    const scanFallback = awsCredentialsLikelyPresent()
+      ? new TextractOcrProvider(store)
+      : null;
+    _provider = new LocalTextProvider(store, scanFallback);
   }
   return _provider;
 }

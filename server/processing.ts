@@ -15,11 +15,21 @@ import { getRepository, type TriageRepository } from "./repository";
 
 const inFlight = new Map<string, Promise<void>>();
 
+/**
+ * Serial processing queue: one document at a time. LLM-backed agent runs are
+ * multi-call and easy to throttle at provider rate limits (especially on
+ * fresh accounts with low initial quotas) — serializing keeps the pipeline
+ * inside them and still processes a demo batch in a couple of minutes.
+ */
+let queueTail: Promise<void> = Promise.resolve();
+
 /** Fire-and-forget processing with a per-document in-flight guard. */
 export function queueProcessing(documentId: string, userId: number, isRetry = false): void {
   if (inFlight.has(documentId)) return;
 
-  const task = processDocument(documentId, userId, isRetry)
+  const task = queueTail
+    .catch(() => {})
+    .then(() => processDocument(documentId, userId, isRetry))
     .catch(error => {
       console.error(`[Processing] Unexpected failure for ${documentId}:`, error);
     })
@@ -27,6 +37,7 @@ export function queueProcessing(documentId: string, userId: number, isRetry = fa
       inFlight.delete(documentId);
     });
 
+  queueTail = task;
   inFlight.set(documentId, task);
 }
 

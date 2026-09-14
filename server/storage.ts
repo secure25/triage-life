@@ -114,18 +114,30 @@ export class S3DocumentStore implements DocumentStore {
   }
 
   async get(key: string) {
-    const response = await this.client.send(
-      new GetObjectCommand({
-        Bucket: this.bucket,
-        Key: this.objectKey(key),
-      }),
-    );
-    if (!response.Body) return null;
-    const bytes = await response.Body.transformToByteArray();
-    return {
-      data: Buffer.from(bytes),
-      contentType: response.ContentType ?? "application/octet-stream",
-    };
+    try {
+      const response = await this.client.send(
+        new GetObjectCommand({
+          Bucket: this.bucket,
+          Key: this.objectKey(key),
+        }),
+      );
+      if (!response.Body) return null;
+      const bytes = await response.Body.transformToByteArray();
+      return {
+        data: Buffer.from(bytes),
+        contentType: response.ContentType ?? "application/octet-stream",
+      };
+    } catch (error) {
+      // Missing objects are null, not errors. (Without s3:ListBucket, S3
+      // reports missing keys as 403 — the policy includes ListBucket so
+      // this is the normal 404 path.)
+      const name = (error as { name?: string }).name;
+      const status = (
+        error as { $metadata?: { httpStatusCode?: number } }
+      ).$metadata?.httpStatusCode;
+      if (name === "NoSuchKey" || status === 404) return null;
+      throw error;
+    }
   }
 
   async delete(key: string) {
