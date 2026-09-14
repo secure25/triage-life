@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { TRPCError } from "@trpc/server";
+import { sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   COOKIE_NAME,
@@ -21,7 +22,7 @@ import { checkRateLimit } from "./domain/ratelimit";
 import { sanitizeFilename, validateUpload } from "./domain/validation";
 import { SYNTHETIC_DOCUMENTS, buildSyntheticDocument } from "./demo/documents";
 import { processPendingDocuments, queueProcessing } from "./processing";
-import { getRepository, type TriageRepository } from "./repository";
+import { getDb, getRepository, type TriageRepository } from "./repository";
 import { buildStorageKey, getDocumentStore } from "./storage";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { ENV } from "./_core/env";
@@ -183,9 +184,42 @@ async function loadQueueItems(
 // Routers
 // ---------------------------------------------------------------------------
 
+/** Configuration + connectivity report for remote diagnosis. No secrets. */
+async function systemHealth() {
+  const db = getDb();
+  let databaseReachable: boolean | null = null;
+  if (db) {
+    try {
+      await Promise.race([
+        db.execute(sql`select 1`),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("timeout")), 3000),
+        ),
+      ]);
+      databaseReachable = true;
+    } catch {
+      databaseReachable = false;
+    }
+  }
+
+  return {
+    ok: true,
+    nodeEnv: process.env.NODE_ENV ?? "development",
+    config: {
+      hasJwtSecret: Boolean(ENV.cookieSecret),
+      database: ENV.databaseUrl ? "postgres" : "in-memory",
+      databaseReachable,
+      storageDriver: ENV.storageDriver,
+      ocrProvider: ENV.ocrProvider,
+      agentProvider: ENV.agentProvider,
+      strandsModelProvider: ENV.strandsModelProvider,
+    },
+  };
+}
+
 export const appRouter = router({
   system: router({
-    health: publicProcedure.query(() => ({ ok: true })),
+    health: publicProcedure.query(() => systemHealth()),
   }),
 
   auth: router({

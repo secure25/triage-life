@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { parse as parseCookieHeader } from "cookie";
 import type { Request } from "express";
@@ -10,22 +11,34 @@ import type { TriageRepository } from "./repository";
 const DEV_SECRET = "triage-life-dev-secret-do-not-use-in-production";
 
 let warnedAboutSecret = false;
+let bootSecret: Uint8Array | null = null;
 
 function getSecretKey(): Uint8Array {
-  if (!ENV.cookieSecret) {
-    if (ENV.isProduction) {
-      throw new Error("JWT_SECRET must be configured in production");
-    }
-    if (!warnedAboutSecret) {
-      console.warn(
-        "[Auth] JWT_SECRET not set — using a development-only secret. " +
-          "Sessions are not durable across restarts and this must never run in production.",
-      );
-      warnedAboutSecret = true;
-    }
-    return new TextEncoder().encode(DEV_SECRET);
+  if (ENV.cookieSecret) {
+    return new TextEncoder().encode(ENV.cookieSecret);
   }
-  return new TextEncoder().encode(ENV.cookieSecret);
+
+  if (ENV.isProduction) {
+    // Never take sign-in down over a missing secret: fall back to a random
+    // per-boot key. Sessions reset on restart, but the platform stays usable.
+    if (!bootSecret) {
+      console.error(
+        "[Auth] JWT_SECRET is not configured — using a random per-boot secret. " +
+          "Sessions will not survive restarts. Set JWT_SECRET for durable sessions.",
+      );
+      bootSecret = new TextEncoder().encode(`${randomUUID()}${randomUUID()}`);
+    }
+    return bootSecret;
+  }
+
+  if (!warnedAboutSecret) {
+    console.warn(
+      "[Auth] JWT_SECRET not set — using a development-only secret. " +
+        "Sessions are not durable across restarts and this must never run in production.",
+    );
+    warnedAboutSecret = true;
+  }
+  return new TextEncoder().encode(DEV_SECRET);
 }
 
 export type SessionPayload = {

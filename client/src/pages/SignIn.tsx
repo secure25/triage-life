@@ -10,6 +10,7 @@ export default function SignIn() {
   const { user } = useAuth();
   const utils = trpc.useUtils();
   const login = trpc.auth.login.useMutation();
+  const createDemo = trpc.demo.create.useMutation();
 
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
@@ -30,6 +31,38 @@ export default function SignIn() {
         error instanceof Error ? error.message : "Sign in failed — try again.",
       );
     }
+  };
+
+  /**
+   * One click → a fresh demo workspace: unique account, three synthetic
+   * documents seeded and processing immediately. Every visitor gets their own
+   * clean queue (no shared state between judges).
+   */
+  const openDemoWorkspace = async () => {
+    const suffix = Math.random().toString(36).slice(2, 10);
+    try {
+      await login.mutateAsync({
+        email: `demo-${suffix}@triage.example`,
+        name: "Alex Rivera",
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not open the demo workspace.",
+      );
+      return;
+    }
+
+    try {
+      await createDemo.mutateAsync();
+      toast.success("Demo workspace ready — three documents are processing");
+    } catch {
+      // Seeding is best-effort; the workspace works regardless.
+    }
+
+    await utils.invalidate();
+    window.location.href = "/app";
   };
 
   return (
@@ -105,12 +138,19 @@ export default function SignIn() {
 
           <Button
             variant="outline"
-            onClick={() => void submit("demo@triage.example", "Alex")}
-            disabled={login.isPending}
+            onClick={() => void openDemoWorkspace()}
+            disabled={login.isPending || createDemo.isPending}
             className="h-10 w-full rounded-[10px] border-[#dce5dd] bg-[#f4f9f5] text-[13px] font-semibold text-[#2b5845] hover:bg-[#eaf3ec]"
           >
-            Continue as demo user
+            {(login.isPending || createDemo.isPending) && (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            )}
+            Open a demo workspace
           </Button>
+          <p className="mt-2 text-center text-[10.5px] text-[#a9b3ac]">
+            Fresh workspace with three sample documents, processing in about a
+            minute.
+          </p>
 
           <div className="mt-6 flex items-start gap-2 rounded-[10px] bg-[#f8faf7] p-3 text-[11px] leading-5 text-[#8a968e]">
             <LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#7ca289]" />
