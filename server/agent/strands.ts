@@ -1,4 +1,7 @@
+import Anthropic from "@anthropic-ai/sdk";
+import { getTokenProvider } from "@aws/bedrock-token-generator";
 import { Agent, tool, type Model } from "@strands-agents/sdk";
+import { AnthropicModel } from "@strands-agents/sdk/models/anthropic";
 import { OpenAIModel } from "@strands-agents/sdk/models/openai";
 import { z } from "zod";
 import type { Document } from "../../drizzle/schema";
@@ -75,31 +78,70 @@ function awsCredentialsLikelyPresent(): boolean {
   );
 }
 
+// Matches AWS region identifiers (us-east-1, ap-southeast-1, …). Anchored so a
+// malformed region cannot re-point the Mantle endpoint URL to another host.
+const MANTLE_REGION_PATTERN = /^[a-z]{2}(-[a-z]+)+-[0-9]+$/;
+
+function resolveMantleRegion(): string {
+  const region =
+    ENV.bedrockMantleRegion ||
+    process.env.AWS_REGION ||
+    process.env.AWS_DEFAULT_REGION;
+  if (!region || !MANTLE_REGION_PATTERN.test(region)) {
+    throw new Error(
+      "STRANDS_MODEL_PROVIDER=bedrock-mantle requires a valid AWS region " +
+        "(set BEDROCK_MANTLE_REGION or AWS_REGION, e.g. us-east-1).",
+    );
+  }
+  return region;
+}
+
 function resolveModel(): { model: Model | string; modelId: string } {
   if (ENV.strandsModelProvider === "bedrock-mantle") {
     if (!ENV.modelId) {
       throw new Error(
         "STRANDS_MODEL_PROVIDER=bedrock-mantle requires MODEL_ID (a Mantle " +
-          "model id, e.g. 'anthropic.claude-opus-4-8' — Mantle ids differ from " +
-          "bedrock-runtime ids; list them via GET /v1/models on the endpoint).",
+          "model id, e.g. 'anthropic.claude-opus-4-8' — Mantle ids are " +
+          "region-local: no us./global. prefixes, unlike bedrock-runtime).",
       );
     }
     if (!awsCredentialsLikelyPresent()) {
       throw new Error(
         "STRANDS_MODEL_PROVIDER=bedrock-mantle requires AWS credentials in the " +
-          "standard chain — the SDK mints short-term bearer tokens from them " +
+          "standard chain — short-term bearer tokens are minted from them " +
           "via @aws/bedrock-token-generator.",
       );
     }
+    const region = resolveMantleRegion();
+    // Claude models on Mantle are served via the Anthropic-native Messages
+    // API (/anthropic/v1/messages), not the OpenAI-compatible surfaces —
+    // anthropic.* ids are rejected on /v1/chat/completions. The Anthropic
+    // SDK appends /v1/messages to the base URL and sends the
+    // anthropic-version header Mantle requires.
+    //
+    // The Anthropic SDK does not support a rotating apiKey function (the
+    // ApiKeySetter type exists but the constructor drops non-string values),
+    // so tokens are injected by wrapping fetch: each request gets a freshly
+    // minted bearer token in the documented x-api-key header. Minting is
+    // local SigV4 presigning — no network call.
+    const provideToken = getTokenProvider({ region });
+    // Non-secret sentinel: satisfies the SDK's "no auth configured" check.
+    // Overwritten with a real bearer token on every request below.
+    const AUTH_PLACEHOLDER = "set-by-fetch-wrapper";
+    const client = new Anthropic({
+      baseURL: `https://bedrock-mantle.${region}.api.aws/anthropic`,
+      apiKey: AUTH_PLACEHOLDER,
+      fetch: async (input, init) => {
+        const headers = new Headers(init?.headers);
+        if (!init?.headers && input instanceof Request) {
+          input.headers.forEach((value, key) => headers.set(key, value));
+        }
+        headers.set("x-api-key", await provideToken());
+        return fetch(input, { ...init, headers });
+      },
+    });
     return {
-      model: new OpenAIModel({
-        api: "chat",
-        modelId: ENV.modelId,
-        // Region falls back to AWS_REGION / AWS_DEFAULT_REGION inside the SDK.
-        bedrockMantleConfig: ENV.bedrockMantleRegion
-          ? { region: ENV.bedrockMantleRegion }
-          : {},
-      }),
+      model: new AnthropicModel({ modelId: ENV.modelId, client }),
       modelId: ENV.modelId,
     };
   }

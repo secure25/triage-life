@@ -156,14 +156,18 @@ orchestration layer. Two engines implement the same boundary:
   tools itself and returns Zod-validated structured output. Model providers:
   - `STRANDS_MODEL_PROVIDER=bedrock` (default) — AWS credential chain;
     `MODEL_ID` optional (defaults to Claude Sonnet 4.6 on Bedrock).
-  - `STRANDS_MODEL_PROVIDER=bedrock-mantle` — Bedrock's OpenAI-compatible
-    [Mantle endpoint](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html)
-    (`https://bedrock-mantle.<region>.api.aws`). Uses the same AWS credential
-    chain — the SDK mints short-term bearer tokens automatically via
-    `@aws/bedrock-token-generator`, so no manually created API key is needed.
-    Requires `MODEL_ID` with a **Mantle** model id (they differ from
-    bedrock-runtime ids, e.g. `anthropic.claude-opus-4-8`); set
-    `BEDROCK_MANTLE_REGION` or `AWS_REGION` for the region.
+  - `STRANDS_MODEL_PROVIDER=bedrock-mantle` — Bedrock's
+    [Mantle endpoint](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-messages-api.md)
+    (`https://bedrock-mantle.<region>.api.aws`). Claude models run via the
+    Anthropic-native Messages API (`/anthropic/v1/messages`) — the OpenAI
+    Chat Completions surface rejects `anthropic.*` models. Uses the same AWS
+    credential chain: short-term bearer tokens are minted automatically via
+    `@aws/bedrock-token-generator`, so no manually created API key is needed
+    (IAM needs `bedrock-mantle:CreateInference` plus
+    `bedrock-mantle:CallWithBearerToken`). Requires `MODEL_ID` with a
+    region-local Mantle id — no `us.`/`global.` prefixes (cross-region
+    profiles aren't supported on Mantle), e.g. `anthropic.claude-opus-4-8`;
+    set `BEDROCK_MANTLE_REGION` or `AWS_REGION` for the region.
   - `STRANDS_MODEL_PROVIDER=openai` — any OpenAI-compatible endpoint,
     including local ones (Ollama/vLLM serve `/v1`): set `OPENAI_BASE_URL`,
     `OPENAI_API_KEY`, and `MODEL_ID`.
