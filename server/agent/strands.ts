@@ -76,6 +76,34 @@ function awsCredentialsLikelyPresent(): boolean {
 }
 
 function resolveModel(): { model: Model | string; modelId: string } {
+  if (ENV.strandsModelProvider === "bedrock-mantle") {
+    if (!ENV.modelId) {
+      throw new Error(
+        "STRANDS_MODEL_PROVIDER=bedrock-mantle requires MODEL_ID (a Mantle " +
+          "model id, e.g. 'anthropic.claude-opus-4-8' — Mantle ids differ from " +
+          "bedrock-runtime ids; list them via GET /v1/models on the endpoint).",
+      );
+    }
+    if (!awsCredentialsLikelyPresent()) {
+      throw new Error(
+        "STRANDS_MODEL_PROVIDER=bedrock-mantle requires AWS credentials in the " +
+          "standard chain — the SDK mints short-term bearer tokens from them " +
+          "via @aws/bedrock-token-generator.",
+      );
+    }
+    return {
+      model: new OpenAIModel({
+        api: "chat",
+        modelId: ENV.modelId,
+        // Region falls back to AWS_REGION / AWS_DEFAULT_REGION inside the SDK.
+        bedrockMantleConfig: ENV.bedrockMantleRegion
+          ? { region: ENV.bedrockMantleRegion }
+          : {},
+      }),
+      modelId: ENV.modelId,
+    };
+  }
+
   if (ENV.strandsModelProvider === "openai") {
     if (!ENV.openaiBaseUrl || !ENV.openaiApiKey || !ENV.modelId) {
       throw new Error(
@@ -97,8 +125,10 @@ function resolveModel(): { model: Model | string; modelId: string } {
   if (!awsCredentialsLikelyPresent()) {
     throw new Error(
       "STRANDS_MODEL_PROVIDER=bedrock requires AWS credentials in the standard " +
-        "chain (or set STRANDS_MODEL_PROVIDER=openai with OPENAI_BASE_URL/" +
-        "OPENAI_API_KEY/MODEL_ID for any OpenAI-compatible endpoint).",
+        "chain (or set STRANDS_MODEL_PROVIDER=bedrock-mantle for Bedrock's " +
+        "OpenAI-compatible endpoint, or STRANDS_MODEL_PROVIDER=openai with " +
+        "OPENAI_BASE_URL/OPENAI_API_KEY/MODEL_ID for any OpenAI-compatible " +
+        "endpoint).",
     );
   }
   const modelId = ENV.modelId || "global.anthropic.claude-sonnet-4-6";

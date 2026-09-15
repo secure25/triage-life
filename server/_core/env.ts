@@ -27,11 +27,17 @@ export const ENV = {
     | "deterministic"
     | "strands",
   modelId: process.env.MODEL_ID ?? "",
-  // Strands model provider: "bedrock" (AWS credential chain) or "openai"
-  // (any OpenAI-compatible endpoint, including local ones).
+  // Strands model provider: "bedrock" (AWS credential chain), "bedrock-mantle"
+  // (Bedrock's OpenAI-compatible endpoint via the standard AWS credential
+  // chain — bearer tokens are minted by @aws/bedrock-token-generator), or
+  // "openai" (any OpenAI-compatible endpoint, including local ones).
   strandsModelProvider: (process.env.STRANDS_MODEL_PROVIDER ?? "bedrock") as
     | "bedrock"
+    | "bedrock-mantle"
     | "openai",
+  // Region for the bedrock-mantle endpoint (https://bedrock-mantle.<region>.api.aws).
+  // Falls back to AWS_REGION / AWS_DEFAULT_REGION when unset.
+  bedrockMantleRegion: process.env.BEDROCK_MANTLE_REGION ?? "",
   openaiBaseUrl: process.env.OPENAI_BASE_URL ?? "",
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
 } as const;

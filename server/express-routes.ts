@@ -22,7 +22,21 @@ export function registerUploadRoutes(app: Express) {
     "/api/uploads/:token",
     express.raw({ type: () => true, limit: MAX_UPLOAD_BYTES }),
     async (req: Request, res: Response) => {
-      const payload = await verifyUploadToken(req.params.token);
+      // Upload tokens are compact JWTs (three base64url segments). Reject
+      // anything of the wrong shape or size before it reaches the verifier so
+      // no attacker-controlled bytes are parsed.
+      const token = req.params.token ?? "";
+      if (
+        token.length > 2048 ||
+        !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$/.test(token)
+      ) {
+        res
+          .status(401)
+          .json({ error: "Upload link expired or invalid — start the upload again." });
+        return;
+      }
+
+      const payload = await verifyUploadToken(token);
       if (!payload) {
         res
           .status(401)
@@ -69,10 +83,19 @@ export function registerUploadRoutes(app: Express) {
 
       const sha256 = createHash("sha256").update(req.body).digest("hex");
       const storageKey = buildStorageKey(payload.userId, payload.filename);
+      // The key is built server-side (owner prefix + random UUID + sanitized
+      // filename). Assert its shape before it reaches storage so the sink only
+      // ever sees a provably server-derived path — never raw client input.
+      if (!/^users\/\d+\/[0-9a-f-]{36}-[A-Za-z0-9._-]{1,124}$/.test(storageKey)) {
+        res.status(500).json({ error: "Could not store the file — try again." });
+        return;
+      }
       const store = getDocumentStore();
 
       try {
-        await store.put(storageKey, req.body, contentType);
+        // payload.mimeType is the value signed into the upload token and
+        // re-validated above; the client header was checked to equal it.
+        await store.put(storageKey, req.body, payload.mimeType);
       } catch (error) {
         console.error("[Upload] Storage failure:", error);
         res.status(500).json({ error: "Could not store the file — try again." });
