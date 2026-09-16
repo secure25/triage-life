@@ -194,6 +194,19 @@ orchestration layer. Two engines implement the same boundary:
       `aws bedrock get-foundation-model-availability --model-id <id>` and
       grant `aws-marketplace:{Subscribe,Unsubscribe,ViewSubscriptions}`.
       The Anthropic first-time-use form is *not* required on Mantle.
+    - **An account-level restriction overrides everything above.** A 403
+      carrying `not available for this account ... contact AWS Sales`, or a
+      playground `ValidationException Error 002: Access to Bedrock models is
+      not allowed for this account`, is AWS's
+      [documented](https://repost.aws/knowledge-center/bedrock-invokemodel-api-error)
+      account-level restriction. It does *not* appear in the console and
+      *cannot* be fixed with IAM policies, model access settings, or a region
+      change — an active Marketplace agreement is necessary but not
+      sufficient. A model showing 0 applied TPM/RPM in Service Quotas is
+      corroborating evidence. Only AWS Support (Account and billing, then
+      technical escalation) can clear it; new accounts with little billing
+      history are the common case. The old *Model access* console page is
+      discontinued in commercial regions and is not the fix.
 
   - `STRANDS_MODEL_PROVIDER=openai` — any OpenAI-compatible endpoint,
     including local ones (Ollama/vLLM serve `/v1`): set `OPENAI_BASE_URL`,
