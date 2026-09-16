@@ -156,6 +156,12 @@ orchestration layer. Two engines implement the same boundary:
   tools itself and returns Zod-validated structured output. Model providers:
   - `STRANDS_MODEL_PROVIDER=bedrock` (default) — AWS credential chain;
     `MODEL_ID` optional (defaults to Claude Sonnet 4.6 on Bedrock).
+    On this endpoint an Anthropic first-time-use (FTU) use-case form must be
+    submitted once per account, and several Claude models require a geo or
+    global inference profile id rather than a bare id (e.g.
+    `global.anthropic.claude-sonnet-4-6`, `us.anthropic.claude-haiku-4-5-20251001-v1:0`).
+    See [model access](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html)
+    and each model card under [models at a glance](https://docs.aws.amazon.com/bedrock/latest/userguide/model-cards.md).
   - `STRANDS_MODEL_PROVIDER=bedrock-mantle` — Bedrock's
     [Mantle endpoint](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-messages-api.md)
     (`https://bedrock-mantle.<region>.api.aws`). Claude models run via the
