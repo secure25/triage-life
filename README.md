@@ -166,8 +166,29 @@ orchestration layer. Two engines implement the same boundary:
     (IAM needs `bedrock-mantle:CreateInference` plus
     `bedrock-mantle:CallWithBearerToken`). Requires `MODEL_ID` with a
     region-local Mantle id — no `us.`/`global.` prefixes (cross-region
-    profiles aren't supported on Mantle), e.g. `anthropic.claude-opus-4-8`;
-    set `BEDROCK_MANTLE_REGION` or `AWS_REGION` for the region.
+    profiles aren't supported on Mantle); set `BEDROCK_MANTLE_REGION` or
+    `AWS_REGION` for the region.
+
+    Two constraints that are easy to trip over, and the errors they produce:
+
+    - **Not every Claude model is on Mantle.** Only the models marked in the
+      [endpoint availability matrix](https://docs.aws.amazon.com/bedrock/latest/userguide/models-endpoint-availability.html)
+      exist here. Sonnet 4.5/4.6, Opus 4.4/4.5/4.6/4.1 and Claude 3.x are
+      bedrock-runtime only. Naming one returns
+      `404 not_found_error: The model '...' does not exist`.
+      Mantle-capable Claude ids include `anthropic.claude-sonnet-5`,
+      `anthropic.claude-opus-5`, `anthropic.claude-opus-4-8`,
+      `anthropic.claude-opus-4-7`, `anthropic.claude-haiku-4-5`.
+    - **The account must be entitled to the model.** Third-party models are
+      AWS Marketplace products; the first invoke auto-creates the
+      subscription, which requires `aws-marketplace:Subscribe` on the calling
+      principal. Without it (or before the subscription finalizes) the call
+      fails with `403 permission_error: <model> is not available for this
+      account`. Check status with
+      `aws bedrock get-foundation-model-availability --model-id <id>` and
+      grant `aws-marketplace:{Subscribe,Unsubscribe,ViewSubscriptions}`.
+      The Anthropic first-time-use form is *not* required on Mantle.
+
   - `STRANDS_MODEL_PROVIDER=openai` — any OpenAI-compatible endpoint,
     including local ones (Ollama/vLLM serve `/v1`): set `OPENAI_BASE_URL`,
     `OPENAI_API_KEY`, and `MODEL_ID`.
