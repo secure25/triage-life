@@ -27,15 +27,20 @@ const extraIds = process.argv.slice(3);
 // contacted — never localhost, loopback, or private addresses.
 const host = `bedrock-mantle.${region}.api.aws`;
 
+// Claude models served on the bedrock-mantle endpoint, per the AWS endpoint
+// availability matrix (https://docs.aws.amazon.com/bedrock/latest/userguide/models-endpoint-availability.html).
+// Note: many Claude models (Sonnet 4.5/4.6, Opus 4.5/4.6, Claude 3.x) are
+// bedrock-runtime only and can never work here, whatever the credentials.
 const CANDIDATE_CLAUDE_IDS = [
-  "anthropic.claude-opus-4-8",
   "anthropic.claude-sonnet-5",
-  "anthropic.claude-sonnet-4-6",
-  "anthropic.claude-opus-4-6",
-  "anthropic.claude-sonnet-4-5",
+  "anthropic.claude-opus-5",
+  "anthropic.claude-opus-4-8",
+  "anthropic.claude-opus-4-7",
   "anthropic.claude-haiku-4-5",
-  "anthropic.claude-3-7-sonnet",
-  "anthropic.claude-3-5-haiku",
+  "anthropic.claude-fable-5-1",
+  "anthropic.claude-fable-5",
+  "anthropic.claude-mythos-5",
+  "anthropic.claude-mythos-preview",
   ...extraIds,
 ];
 
