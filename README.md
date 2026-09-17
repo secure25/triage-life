@@ -224,7 +224,43 @@ orchestration layer. Two engines implement the same boundary:
 
   - `STRANDS_MODEL_PROVIDER=openai` — any OpenAI-compatible endpoint,
     including local ones (Ollama/vLLM serve `/v1`): set `OPENAI_BASE_URL`,
-    `OPENAI_API_KEY`, and `MODEL_ID`.
+    `OPENAI_API_KEY`, and `MODEL_ID`. This is the escape hatch when Bedrock is
+    unavailable — no AWS account, IAM, or Marketplace involvement.
+
+    Chat alone is not enough: the agent loop needs the model to emit
+    OpenAI-style **tool calls**, and many free/cheap models accept the `tools`
+    parameter but ignore it (the agent then extracts nothing). Verify a
+    candidate endpoint before wiring it in:
+
+    ```bash
+    OPENAI_API_KEY=... node scripts/check-openai-compat.mjs <base-url> <model-id>
+    ```
+
+    It checks plain chat, then a tool call, then a *forced* `tool_choice`
+    call (Strands sends that when it forces its structured-output tool, and
+    some endpoints reject the parameter). Endpoint URLs are validated (https
+    required for remote hosts; cleartext only for loopback, so a local
+    Ollama/vLLM server keeps working).
+
+    **Ollama Cloud** is the zero-AWS option that needs no code change — it
+    speaks the OpenAI API at `https://ollama.com/v1`:
+
+    ```bash
+    STRANDS_MODEL_PROVIDER=openai
+    OPENAI_BASE_URL=https://ollama.com/v1
+    OPENAI_API_KEY=<key from https://ollama.com/settings/keys>
+    MODEL_ID=gpt-oss:120b
+    ```
+
+    `gpt-oss:120b` is the best pick for this workload: it is OpenAI's own
+    model, so the native `tools`/`tool_calls` format matches what the agent
+    speaks, and it is the longest-running cloud model (fewer tool-parser bugs
+    than the newer arrivals). `gpt-oss:20b` is the cheaper fallback. Three
+    caveats worth knowing before deploying: free plans allow **1 concurrent
+    request**, only a **"starter" model subset** is included (other models
+    answer `402`/`403`, and the subset is not published — hence the probe),
+    and `tool_choice` is not supported on the cloud endpoint, which is exactly
+    what the third check in the verifier tests.
 
   The model decides what to extract and how to phrase drafts — never what is
   allowed. Dates and amounts are normalized server-side, priority
