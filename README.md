@@ -208,6 +208,20 @@ orchestration layer. Two engines implement the same boundary:
       history are the common case. The old *Model access* console page is
       discontinued in commercial regions and is not the fix.
 
+    To tell an account-level block apart from an app misconfiguration, run the
+    diagnostic outside the app (same credentials, Converse API the AWS SDK
+    uses):
+
+    ```bash
+    node scripts/check-bedrock-access.mjs us-east-1
+    node scripts/check-bedrock-access.mjs us-east-1 --invoke global.anthropic.claude-sonnet-4-6
+    ```
+
+    The first lists the Anthropic models your account can see with their
+    agreement/authorization/entitlement status; the second proves whether
+    inference itself is permitted. If the standalone invocation fails with an
+    access error, no app setting is at fault.
+
   - `STRANDS_MODEL_PROVIDER=openai` — any OpenAI-compatible endpoint,
     including local ones (Ollama/vLLM serve `/v1`): set `OPENAI_BASE_URL`,
     `OPENAI_API_KEY`, and `MODEL_ID`.
