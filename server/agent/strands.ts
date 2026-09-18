@@ -1,11 +1,11 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { getTokenProvider } from "@aws/bedrock-token-generator";
+import { createRequire } from "node:module";
 import { Agent, tool, type Model } from "@strands-agents/sdk";
-import { AnthropicModel } from "@strands-agents/sdk/models/anthropic";
 import { OpenAIModel } from "@strands-agents/sdk/models/openai";
 import { z } from "zod";
 import type { Document } from "../../drizzle/schema";
 import { ENV } from "../_core/env";
+
+const require = createRequire(import.meta.url);
 import type { TriageRepository } from "../repository";
 import type { ExtractionResult, ExtractedObligation } from "./extraction";
 import type { AgentEngine } from "./engine";
@@ -124,6 +124,19 @@ function resolveModel(): { model: Model | string; modelId: string } {
     // so tokens are injected by wrapping fetch: each request gets a freshly
     // minted bearer token in the documented x-api-key header. Minting is
     // local SigV4 presigning — no network call.
+    let Anthropic: any;
+    let getTokenProvider: any;
+    let AnthropicModel: any;
+    try {
+      const anthropicModule = require("@anthropic-ai/sdk");
+      Anthropic = anthropicModule.default || anthropicModule;
+      getTokenProvider = require("@aws/bedrock-token-generator").getTokenProvider;
+      AnthropicModel = require("@strands-agents/sdk/models/anthropic").AnthropicModel;
+    } catch {
+      throw new Error(
+        "STRANDS_MODEL_PROVIDER=bedrock-mantle requires @anthropic-ai/sdk and @aws/bedrock-token-generator to be installed.",
+      );
+    }
     const provideToken = getTokenProvider({ region });
     // Non-secret sentinel: satisfies the SDK's "no auth configured" check.
     // Overwritten with a real bearer token on every request below.
@@ -131,7 +144,7 @@ function resolveModel(): { model: Model | string; modelId: string } {
     const client = new Anthropic({
       baseURL: `https://bedrock-mantle.${region}.api.aws/anthropic`,
       apiKey: AUTH_PLACEHOLDER,
-      fetch: async (input, init) => {
+      fetch: async (input: any, init?: any) => {
         const headers = new Headers(init?.headers);
         if (!init?.headers && input instanceof Request) {
           input.headers.forEach((value, key) => headers.set(key, value));
@@ -159,6 +172,8 @@ function resolveModel(): { model: Model | string; modelId: string } {
         apiKey: ENV.openaiApiKey,
         clientConfig: { baseURL: ENV.openaiBaseUrl },
         modelId: ENV.modelId,
+        maxTokens: 4096,
+        params: { max_tokens: 4096 },
       }),
       modelId: ENV.modelId,
     };
