@@ -173,7 +173,6 @@ function resolveModel(): { model: Model | string; modelId: string } {
         clientConfig: { baseURL: ENV.openaiBaseUrl },
         modelId: ENV.modelId,
         maxTokens: 4096,
-        params: { max_tokens: 4096 },
       }),
       modelId: ENV.modelId,
     };
