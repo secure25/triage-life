@@ -96,6 +96,28 @@ function resolveMantleRegion(): string {
   return region;
 }
 
+function normalizeOpenAiBaseUrl(rawUrl: string): string {
+  let url = rawUrl.trim().replace(/\/+$/, "");
+  // Strip trailing /chat/completions if pasted
+  url = url.replace(/\/chat\/completions$/, "");
+  // Ensure /v1 path exists for known providers if omitted
+  if (url === "https://api.cerebras.ai") {
+    url = "https://api.cerebras.ai/v1";
+  } else if (url === "https://api.groq.com/openai" || url === "https://api.groq.com") {
+    url = "https://api.groq.com/openai/v1";
+  }
+  return url;
+}
+
+function normalizeOpenAiModelId(rawModelId: string, baseUrl: string): string {
+  let id = rawModelId.trim().replace(/^["']|["']$/g, "");
+  // Cerebras model ids do not have provider prefixes like "qwen/"
+  if (baseUrl.includes("cerebras.ai")) {
+    id = id.replace(/^qwen\//, "");
+  }
+  return id;
+}
+
 function resolveModel(): { model: Model | string; modelId: string } {
   if (ENV.strandsModelProvider === "bedrock-mantle") {
     if (!ENV.modelId) {
@@ -166,15 +188,18 @@ function resolveModel(): { model: Model | string; modelId: string } {
           "and MODEL_ID (any OpenAI-compatible endpoint works, including local ones).",
       );
     }
+    const baseURL = normalizeOpenAiBaseUrl(ENV.openaiBaseUrl);
+    const modelId = normalizeOpenAiModelId(ENV.modelId, baseURL);
+    const apiKey = ENV.openaiApiKey.trim().replace(/^["']|["']$/g, "");
     return {
       model: new OpenAIModel({
         api: "chat",
-        apiKey: ENV.openaiApiKey,
-        clientConfig: { baseURL: ENV.openaiBaseUrl },
-        modelId: ENV.modelId,
+        apiKey,
+        clientConfig: { baseURL },
+        modelId,
         maxTokens: 4096,
       }),
-      modelId: ENV.modelId,
+      modelId,
     };
   }
 
