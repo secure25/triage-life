@@ -100,11 +100,16 @@ function normalizeOpenAiBaseUrl(rawUrl: string): string {
   let url = rawUrl.trim().replace(/\/+$/, "");
   // Strip trailing /chat/completions if pasted
   url = url.replace(/\/chat\/completions$/, "");
-  // Ensure /v1 path exists for known providers if omitted
+  // Ensure correct path exists for known providers if omitted
   if (url === "https://api.cerebras.ai") {
     url = "https://api.cerebras.ai/v1";
   } else if (url === "https://api.groq.com/openai" || url === "https://api.groq.com") {
     url = "https://api.groq.com/openai/v1";
+  } else if (
+    url === "https://generativelanguage.googleapis.com" ||
+    url === "https://generativelanguage.googleapis.com/v1beta"
+  ) {
+    url = "https://generativelanguage.googleapis.com/v1beta/openai";
   }
   return url;
 }
@@ -114,6 +119,8 @@ function normalizeOpenAiModelId(rawModelId: string, baseUrl: string): string {
   // Cerebras model ids do not have provider prefixes like "qwen/"
   if (baseUrl.includes("cerebras.ai")) {
     id = id.replace(/^qwen\//, "");
+  } else if (baseUrl.includes("generativelanguage.googleapis.com")) {
+    id = id.replace(/^(models\/|google\/)/, "");
   }
   return id;
 }
